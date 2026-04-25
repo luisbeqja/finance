@@ -152,6 +152,7 @@ export function buildHelpMessage() {
     "/balance - Account balances\n" +
     "/transactions [N] - Recent transactions (default 10)\n" +
     "/spending [YYYY-MM] - Category spending breakdown\n" +
+    "/research &lt;goal&gt; - Deep multi-step AI budget analysis\n" +
     "/clear - Clear AI conversation history\n" +
     "/help - Show this message\n\n" +
     "<b>Proactive insights</b>\n" +
@@ -161,6 +162,7 @@ export function buildHelpMessage() {
     "/unsubscribe - Stop the daily/weekly/monthly insights\n" +
     "/subscribe - Re-enable them\n\n" +
     "Or just type any question to ask the AI about your finances.\n" +
+    "Use /research for deeper AutoResearch-style investigations with more tool steps.\n" +
     "The AI remembers the last 10 messages for follow-ups.\n\n" +
     "<b>AI Assistant</b>\n" +
     "The AI can look up your financial data using these tools:\n" +
@@ -168,6 +170,8 @@ export function buildHelpMessage() {
     "- <b>Transactions</b> — search by date, account, with payee and category info\n" +
     "- <b>Budget month</b> — category spending/income breakdown for a month\n" +
     "- <b>Budget summary</b> — compare income and spending across months\n" +
+    "- <b>Spending summary</b> — transaction-based totals by category/payee/account/day\n" +
+    "- <b>Budget health</b> — overspending, remaining budget, uncategorized spend\n" +
     "- <b>Categories</b> — list all budget categories and groups\n" +
     "- <b>Payees</b> — list all merchants/payees\n\n" +
     "<b>Example questions</b>\n" +
@@ -175,6 +179,7 @@ export function buildHelpMessage() {
     '<i>"What were my top 5 expenses last week?"</i>\n' +
     '<i>"How much did I pay at Lidl in January?"</i>\n' +
     '<i>"Compare my spending in Jan vs Feb"</i>\n' +
+    '<i>"/research find my biggest budget leaks this quarter"</i>\n' +
     '<i>"What is my account balance?"</i>\n\n' +
     "<b>Admin</b>\n" +
     "/invite - Generate an invite code\n" +

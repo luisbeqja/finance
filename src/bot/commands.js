@@ -16,7 +16,7 @@ import {
   buildBanksListMessage,
   buildHelpMessage,
 } from "./format.js";
-import { askAgent, clearHistory } from "../agent/index.js";
+import { askAgent, clearHistory, researchAgent } from "../agent/index.js";
 import { isValidTimezone } from "../insights/timezone.js";
 import { runInsight } from "../insights/orchestrator.js";
 
@@ -185,6 +185,26 @@ export function registerCommands(bot) {
   bot.command("clear", requireUser(), (ctx) => {
     clearHistory(ctx.chat.id);
     return ctx.reply("Chat context cleared.");
+  });
+
+  bot.command("research", requireUser(), async (ctx) => {
+    const goal = ctx.message.text.replace(/^\/research(@\w+)?\s*/i, "").trim();
+    if (!goal) {
+      return ctx.reply(
+        "Usage: /research <goal>\n" +
+          "Example: /research find why my spending is high this month and what I should cut first"
+      );
+    }
+
+    try {
+      await ctx.reply("Research mode started. I’ll run a deeper multi-step budget analysis.");
+      await withTyping(ctx, async () => {
+        const answer = await researchAgent(ctx.user, goal, ctx.telegram);
+        await ctx.replyWithHTML(answer);
+      });
+    } catch (error) {
+      await ctx.replyWithHTML(friendlyError(error));
+    }
   });
 
   // --- Proactive insights ---

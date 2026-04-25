@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Finance</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="login-screen" class="screen">
+    <div class="card">
+      <h1>Finance</h1>
+      <p class="muted">Enter your Telegram chat ID to continue. You must already be set up via the Telegram bot.</p>
+      <form id="login-form">
+        <input id="chat-id-input" type="text" placeholder="Chat ID" autocomplete="off" required />
+        <button type="submit">Continue</button>
+      </form>
+      <p id="login-error" class="error"></p>
+    </div>
+  </div>
+
+  <div id="app-screen" class="screen hidden">
+    <header>
+      <div class="header-left">
+        <strong>Finance</strong>
+        <span id="user-label" class="muted"></span>
+      </div>
+      <div class="header-right">
+        <button id="btn-logout" class="ghost">Logout</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <h3>Quick Actions</h3>
+        <button class="action" data-action="balance">Balance</button>
+        <button class="action" data-action="transactions">Recent Transactions</button>
+        <button class="action" data-action="spending">Monthly Spending</button>
+        <button class="action" data-action="sync">Sync Banks</button>
+        <button class="action ghost" data-action="clear">Clear AI History</button>
+
+        <h3>Connected Banks</h3>
+        <div id="banks-list" class="banks-list"></div>
+        <button id="btn-connect-bank" class="ghost" style="margin-top:8px">+ Connect Bank</button>
+      </aside>
+
+      <main class="chat-area">
+        <div id="messages" class="messages">
+          <div class="msg system">
+            <p>Ask me anything about your finances, or use the quick actions on the left.</p>
+            <p class="muted small">Examples: "How much did I spend this month?", "Top 5 expenses last week", "Compare Jan vs Feb spending"</p>
+          </div>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" type="text" placeholder="Ask about your finances..." autocomplete="off" />
+          <button type="submit" id="chat-send">Send</button>
+        </form>
+      </main>
+    </div>
+  </div>
+
+  <div id="connect-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card">
+      <header class="modal-header">
+        <h2 id="connect-title">Connect Bank</h2>
+        <button class="ghost" id="connect-close">&times;</button>
+      </header>
+      <div class="modal-body">
+        <!-- Step 1: pick bank -->
+        <div id="connect-step-1" class="connect-step">
+          <p>Select a bank to connect.</p>
+          <div id="connect-bank-list" class="bank-picker"></div>
+        </div>
+
+        <!-- Step 2: paste redirect URL -->
+        <div id="connect-step-2" class="connect-step hidden">
+          <p>Click the link below to authorize <b id="connect-bank-name"></b>:</p>
+          <p><a id="connect-auth-link" target="_blank" rel="noopener" class="auth-link"></a></p>
+          <p class="muted small">After authorizing, your browser will redirect to a page on enablebanking.com. Copy that page's full URL and paste it below.</p>
+          <textarea id="connect-redirect-input" placeholder="https://enablebanking.com/?code=..." rows="3"></textarea>
+          <div class="modal-actions">
+            <button class="ghost" id="connect-back-1">Back</button>
+            <button id="connect-submit-code">Continue</button>
+          </div>
+        </div>
+
+        <!-- Step 3: pick account -->
+        <div id="connect-step-3" class="connect-step hidden">
+          <p>Select the bank account to use:</p>
+          <div id="connect-account-list" class="bank-picker"></div>
+        </div>
+
+        <!-- Step 4: enter Actual Account ID -->
+        <div id="connect-step-4" class="connect-step hidden">
+          <p>Enter the Actual Budget Account ID where this bank's transactions should be synced.</p>
+          <p class="muted small">Find it in the URL when viewing the account in Actual Budget.</p>
+          <input id="connect-actual-id" type="text" placeholder="e.g. 6977c25c-fb09-..." />
+          <div class="modal-actions">
+            <button class="ghost" id="connect-back-3">Back</button>
+            <button id="connect-finish">Connect</button>
+          </div>
+        </div>
+
+        <p id="connect-error" class="error"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
