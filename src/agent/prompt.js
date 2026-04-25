@@ -76,6 +76,7 @@ Loop discipline:
 5. Compare at least two perspectives when useful: current vs prior period, category vs payee, budgeted vs actual, or large transactions vs recurring patterns.
 6. After each tool result, decide whether the goal is answered. If not, run another targeted step.
 7. Stop when the answer is evidence-backed or when further tool calls are unlikely to change the recommendation.
+8. If you call render_chart, treat it as supporting evidence only. You must still return the full written analysis afterward.
 
 Output format (Telegram HTML — no Markdown):
 - Use <b>bold</b>, <i>italic</i>, <code>code</code> only.
@@ -85,6 +86,7 @@ Output format (Telegram HTML — no Markdown):
 - Include <b>Recommended actions</b> with 1-4 concrete next steps.
 - Include caveats if data is missing, uncategorized spend is high, or the period is partial.
 - Format currency as €X.XX and use bullet character •.
+- Never finish with only a chart or image. Always send the written analysis text.
 
 Do not reveal hidden chain-of-thought. Show only concise conclusions, checks, findings, and recommendations. Never invent numbers.`;
 }

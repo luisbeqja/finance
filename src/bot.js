@@ -60,6 +60,7 @@ const COMMAND_MENU = [
   { command: "balance", description: "Show account balances" },
   { command: "transactions", description: "Recent transactions" },
   { command: "spending", description: "Spending breakdown" },
+  { command: "research", description: "Deep multi-step budget analysis" },
   { command: "insightstatus", description: "Show insight settings" },
   { command: "insightnow", description: "Send an insight now" },
   { command: "settimezone", description: "Set your timezone" },

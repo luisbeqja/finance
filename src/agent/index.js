@@ -37,6 +37,26 @@ function extractText(response) {
     .join("\n");
 }
 
+async function forceFinalText({ systemPrompt, messages, maxTokens }) {
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: maxTokens,
+    system:
+      `${systemPrompt}\n\n` +
+      "You cannot call any more tools now. Return the best final answer from the evidence already gathered. " +
+      "If a chart was already sent, still include the written analysis and recommendations.",
+    messages: [
+      ...messages,
+      {
+        role: "user",
+        content:
+          "Tool budget reached. Do not request more tools. Produce the final written answer now, using only the evidence already gathered.",
+      },
+    ],
+  });
+  return extractText(response).trim();
+}
+
 /**
  * Runs a Claude tool-use loop with the budget agent's tools.
  * Opens one Actual Budget session for the entire round-trip.
@@ -124,7 +144,14 @@ export async function runAgentLoop({
       }
     }
 
-    return extractText(response);
+    const answer = extractText(response).trim();
+    if (answer && !response.content.some((b) => b.type === "tool_use")) {
+      return answer;
+    }
+
+    console.warn(`[agent] Tool loop ended without final text after ${rounds} rounds; forcing final answer.`);
+    const finalAnswer = await forceFinalText({ systemPrompt, messages, maxTokens });
+    return finalAnswer || "I sent the chart, but I could not generate the written analysis. Please try /research again with a narrower goal.";
   });
 }
 
