@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { withActual } from "../bot/actual-query.js";
 import { toolDefinitions, toolExecutors } from "./tools.js";
-import { buildSystemPrompt } from "./prompt.js";
+import { buildResearchPrompt, buildSystemPrompt } from "./prompt.js";
 
 const MAX_TOOL_ROUNDS = 10;
 const MAX_HISTORY = 10;
@@ -47,10 +47,18 @@ function extractText(response) {
  * @param {string} args.systemPrompt - System prompt for this run
  * @param {Array} args.messages - Initial messages array (history + current user message). Mutated by the loop.
  * @param {number} [args.maxTokens=1024] - Max output tokens per Claude call
+ * @param {number} [args.maxToolRounds=10] - Max tool-use iterations before returning the best current answer
  * @param {Object} [args.telegram] - Telegraf bot.telegram instance — required for the render_chart tool to send photos
  * @returns {Promise<string>} The final assistant text
  */
-export async function runAgentLoop({ userConfig, systemPrompt, messages, maxTokens = 1024, telegram }) {
+export async function runAgentLoop({
+  userConfig,
+  systemPrompt,
+  messages,
+  maxTokens = 1024,
+  maxToolRounds = MAX_TOOL_ROUNDS,
+  telegram,
+}) {
   const toolCtx = telegram ? { telegram, chatId: userConfig.chat_id } : undefined;
 
   let response = await client.messages.create({
@@ -68,7 +76,7 @@ export async function runAgentLoop({ userConfig, systemPrompt, messages, maxToke
   return await withActual(userConfig, async (api) => {
     let rounds = 0;
 
-    while (rounds < MAX_TOOL_ROUNDS) {
+    while (rounds < maxToolRounds) {
       rounds++;
 
       const toolUseBlocks = response.content.filter((b) => b.type === "tool_use");
@@ -145,4 +153,31 @@ export async function askAgent(userConfig, question, telegram) {
   addToHistory(chatId, "user", question);
   addToHistory(chatId, "assistant", answer);
   return answer;
+}
+
+/**
+ * Run a bounded, goal-oriented research loop for deeper budget analysis.
+ * This intentionally skips chat history so the agent can focus on the stated goal.
+ *
+ * @param {Object} userConfig - User's Actual Budget connection config
+ * @param {string} goal - The user's research goal
+ * @param {Object} [telegram] - Telegraf bot.telegram, required for chart rendering
+ * @returns {Promise<string>} The agent's final research report
+ */
+export async function researchAgent(userConfig, goal, telegram) {
+  return await runAgentLoop({
+    userConfig,
+    systemPrompt: buildResearchPrompt(),
+    messages: [
+      {
+        role: "user",
+        content:
+          `Research goal: ${goal}\n\n` +
+          "Work autonomously toward this goal. Use the available budget tools for evidence, iterate if findings are incomplete, then return the final report.",
+      },
+    ],
+    maxTokens: 2200,
+    maxToolRounds: 25,
+    telegram,
+  });
 }

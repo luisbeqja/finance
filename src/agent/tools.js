@@ -11,6 +11,116 @@ const CHART_PALETTE = [
   "#edc949", "#af7aa1", "#ff9da7", "#9c755f", "#bab0ab",
 ];
 
+function toDateOnly(date) {
+  return date.toISOString().split("T")[0];
+}
+
+function daysInclusive(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  return Math.max(1, Math.round((end - start) / 86400000) + 1);
+}
+
+function getMonthRange(month) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const start = new Date(Date.UTC(year, monthNumber - 1, 1));
+  const end = new Date(Date.UTC(year, monthNumber, 0));
+  return { startDate: toDateOnly(start), endDate: toDateOnly(end) };
+}
+
+function addGroupedAmount(map, key, amount) {
+  if (!map.has(key)) map.set(key, 0);
+  map.set(key, map.get(key) + amount);
+}
+
+function sortedGroups(map, limit) {
+  return Array.from(map.entries())
+    .map(([name, amount]) => ({ name, amount }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, limit);
+}
+
+async function getTransactionsWithLookups(api, startDate, endDate, input = {}) {
+  const accounts = await api.getAccounts();
+  let open = accounts.filter((a) => !a.closed);
+
+  if (input.account_name) {
+    const q = input.account_name.toLowerCase();
+    open = open.filter((a) => a.name.toLowerCase().includes(q));
+  }
+
+  let allTx = [];
+  for (const acc of open) {
+    const txs = await api.getTransactions(acc.id, startDate, endDate);
+    allTx.push(...txs.map((tx) => ({ ...tx, account_name: acc.name })));
+  }
+
+  const payees = await api.getPayees();
+  const categories = await api.getCategories();
+  const payeeMap = new Map(payees.map((p) => [p.id, p.name]));
+  const categoryMap = new Map(categories.map((c) => [c.id, c.name]));
+
+  if (input.payee_name) {
+    const q = input.payee_name.toLowerCase();
+    allTx = allTx.filter((tx) => (payeeMap.get(tx.payee) || "").toLowerCase().includes(q));
+  }
+
+  if (input.category_name) {
+    const q = input.category_name.toLowerCase();
+    allTx = allTx.filter((tx) => (categoryMap.get(tx.category) || "").toLowerCase().includes(q));
+  }
+
+  return { transactions: allTx, payeeMap, categoryMap };
+}
+
+function summarizeTransactions(transactions, payeeMap, categoryMap, { groupBy = "category", limit = 10 } = {}) {
+  let income = 0;
+  let spending = 0;
+  const byCategory = new Map();
+  const byPayee = new Map();
+  const byAccount = new Map();
+  const byMonth = new Map();
+  const byDay = new Map();
+  const largestExpenses = [];
+
+  for (const tx of transactions) {
+    const amount = tx.amount || 0;
+    if (amount > 0) income += amount;
+
+    const expense = amount < 0 ? Math.abs(amount) : 0;
+    if (expense > 0) {
+      spending += expense;
+      const category = categoryMap.get(tx.category) || "(uncategorized)";
+      const payee = payeeMap.get(tx.payee) || tx.payee || "(unknown)";
+      addGroupedAmount(byCategory, category, expense);
+      addGroupedAmount(byPayee, payee, expense);
+      addGroupedAmount(byAccount, tx.account_name || "(unknown account)", expense);
+      addGroupedAmount(byMonth, tx.date.slice(0, 7), expense);
+      addGroupedAmount(byDay, tx.date, expense);
+      largestExpenses.push({
+        date: tx.date,
+        amount: expense,
+        payee,
+        category,
+        account: tx.account_name,
+      });
+    }
+  }
+
+  const groups = { category: byCategory, payee: byPayee, account: byAccount, month: byMonth, day: byDay };
+
+  return {
+    income,
+    spending,
+    net: income - spending,
+    transaction_count: transactions.length,
+    expense_transaction_count: largestExpenses.length,
+    grouped_by: groupBy,
+    top_groups: sortedGroups(groups[groupBy] || byCategory, limit),
+    largest_expenses: largestExpenses.sort((a, b) => b.amount - a.amount).slice(0, Math.min(limit, 10)),
+  };
+}
+
 const tools = [
   {
     definition: {
@@ -209,6 +319,177 @@ const tools = [
         summaries.push({ month, income, spent });
       }
       return summaries;
+    },
+  },
+
+  {
+    definition: {
+      name: "get_spending_summary",
+      description:
+        "Compute a reliable transaction-based spending summary for a date range. Use this for budget analysis, top categories/payees, month comparisons, and total spending because it includes uncategorized transactions.",
+      input_schema: {
+        type: "object",
+        properties: {
+          start_date: {
+            type: "string",
+            description: "Start date in YYYY-MM-DD format.",
+          },
+          end_date: {
+            type: "string",
+            description: "End date in YYYY-MM-DD format.",
+          },
+          group_by: {
+            type: "string",
+            enum: ["category", "payee", "account", "month", "day"],
+            description: "How to group expense outflows. Defaults to category.",
+          },
+          limit: {
+            type: "number",
+            description: "Number of top groups and large expenses to return. Defaults to 10.",
+          },
+          account_name: {
+            type: "string",
+            description: "Optional account filter (case-insensitive partial match).",
+          },
+          payee_name: {
+            type: "string",
+            description: "Optional payee filter (case-insensitive partial match).",
+          },
+          category_name: {
+            type: "string",
+            description: "Optional category filter (case-insensitive partial match).",
+          },
+        },
+        required: ["start_date", "end_date"],
+      },
+    },
+    async execute(api, input) {
+      const { transactions, payeeMap, categoryMap } = await getTransactionsWithLookups(
+        api,
+        input.start_date,
+        input.end_date,
+        input
+      );
+      const limit = input.limit || 10;
+      const summary = summarizeTransactions(transactions, payeeMap, categoryMap, {
+        groupBy: input.group_by || "category",
+        limit,
+      });
+      const days = daysInclusive(input.start_date, input.end_date);
+
+      return {
+        start_date: input.start_date,
+        end_date: input.end_date,
+        days,
+        ...summary,
+        average_daily_spending: Math.round(summary.spending / days),
+      };
+    },
+  },
+
+  {
+    definition: {
+      name: "get_budget_health",
+      description:
+        "Analyze one budget month with normalized budget health metrics: total budgeted, assigned category spending, transaction-based total spending, remaining balances, overspent categories, uncategorized spend, top categories, and top payees.",
+      input_schema: {
+        type: "object",
+        properties: {
+          month: {
+            type: "string",
+            description: "Month in YYYY-MM format (e.g. 2026-02).",
+          },
+          top_limit: {
+            type: "number",
+            description: "Number of top categories/payees and overspent categories to return. Defaults to 10.",
+          },
+        },
+        required: ["month"],
+      },
+    },
+    async execute(api, input) {
+      const topLimit = input.top_limit || 10;
+      const { startDate, endDate } = getMonthRange(input.month);
+      const budget = await api.getBudgetMonth(input.month);
+      const { transactions, payeeMap, categoryMap } = await getTransactionsWithLookups(api, startDate, endDate);
+      const txSummary = summarizeTransactions(transactions, payeeMap, categoryMap, {
+        groupBy: "category",
+        limit: topLimit,
+      });
+
+      const categories = [];
+      let totalBudgeted = 0;
+      let assignedCategorySpending = 0;
+      let totalReceived = 0;
+      let totalBalance = 0;
+
+      for (const group of budget.categoryGroups || []) {
+        for (const category of group.categories || []) {
+          const budgeted = category.budgeted || 0;
+          const spent = category.spent || 0;
+          const received = category.received || 0;
+          const balance = category.balance || 0;
+          const spending = spent < 0 ? Math.abs(spent) : 0;
+
+          totalBudgeted += budgeted;
+          assignedCategorySpending += spending;
+          totalReceived += received;
+          totalBalance += balance;
+
+          if (budgeted !== 0 || spent !== 0 || received !== 0 || balance !== 0) {
+            categories.push({
+              group: group.name,
+              name: category.name,
+              budgeted,
+              spending,
+              received,
+              balance,
+              remaining: balance,
+              overspent: balance < 0 ? Math.abs(balance) : 0,
+              percent_used: budgeted > 0 ? Math.round((spending / budgeted) * 100) : null,
+            });
+          }
+        }
+      }
+
+      const topCategories = [...categories]
+        .filter((category) => category.spending > 0)
+        .sort((a, b) => b.spending - a.spending)
+        .slice(0, topLimit);
+      const overspentCategories = [...categories]
+        .filter((category) => category.overspent > 0)
+        .sort((a, b) => b.overspent - a.overspent)
+        .slice(0, topLimit);
+      const nearLimitCategories = [...categories]
+        .filter((category) => category.percent_used !== null && category.percent_used >= 80 && category.balance >= 0)
+        .sort((a, b) => b.percent_used - a.percent_used)
+        .slice(0, topLimit);
+
+      const uncategorized = txSummary.top_groups.find((group) => group.name === "(uncategorized)");
+
+      return {
+        month: input.month,
+        start_date: startDate,
+        end_date: endDate,
+        total_budgeted: totalBudgeted,
+        assigned_category_spending: assignedCategorySpending,
+        transaction_spending: txSummary.spending,
+        income: txSummary.income,
+        net: txSummary.net,
+        budget_received: totalReceived,
+        total_balance: totalBalance,
+        uncategorized_spending: uncategorized?.amount || 0,
+        overspent_total: overspentCategories.reduce((sum, category) => sum + category.overspent, 0),
+        budget_usage_percent: totalBudgeted > 0 ? Math.round((assignedCategorySpending / totalBudgeted) * 100) : null,
+        top_categories: topCategories,
+        top_payees: summarizeTransactions(transactions, payeeMap, categoryMap, {
+          groupBy: "payee",
+          limit: topLimit,
+        }).top_groups,
+        overspent_categories: overspentCategories,
+        near_limit_categories: nearLimitCategories,
+        largest_expenses: txSummary.largest_expenses,
+      };
     },
   },
 
