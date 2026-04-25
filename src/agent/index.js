@@ -5,10 +5,10 @@ import { buildSystemPrompt } from "./prompt.js";
 
 const MAX_TOOL_ROUNDS = 10;
 const MAX_HISTORY = 10;
+const MODEL = "claude-sonnet-4-5-20250929";
 
 const client = new Anthropic();
 
-// In-memory chat history per user (chat_id -> [{role, content}])
 const chatHistories = new Map();
 
 function getHistory(chatId) {
@@ -25,59 +25,54 @@ export function clearHistory(chatId) {
 function addToHistory(chatId, role, content) {
   const history = getHistory(chatId);
   history.push({ role, content });
-  // Keep only the last MAX_HISTORY pairs (user + assistant = 2 entries each)
   while (history.length > MAX_HISTORY * 2) {
     history.shift();
   }
 }
 
+function extractText(response) {
+  return response.content
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
+
 /**
- * Ask the AI agent a natural language question about the user's budget.
- * Opens one Actual session, lets Claude call tools inside it, returns the final answer.
+ * Runs a Claude tool-use loop with the budget agent's tools.
+ * Opens one Actual Budget session for the entire round-trip.
+ * Skips opening Actual if the first response has no tool calls.
  *
- * @param {Object} userConfig - User's Actual Budget connection config
- * @param {string} question - The user's natural language question
- * @returns {Promise<string>} The agent's text response
+ * @param {Object} args
+ * @param {Object} args.userConfig - User's Actual Budget connection config
+ * @param {string} args.systemPrompt - System prompt for this run
+ * @param {Array} args.messages - Initial messages array (history + current user message). Mutated by the loop.
+ * @param {number} [args.maxTokens=1024] - Max output tokens per Claude call
+ * @returns {Promise<string>} The final assistant text
  */
-export async function askAgent(userConfig, question) {
-  const chatId = userConfig.chat_id;
-  const history = getHistory(chatId);
-
-  // Build messages: history + current question
-  const messages = [...history, { role: "user", content: question }];
-
-  // First Claude call — may request tool use
+export async function runAgentLoop({ userConfig, systemPrompt, messages, maxTokens = 1024 }) {
   let response = await client.messages.create({
-    model: "claude-sonnet-4-5-20250929",
-    max_tokens: 1024,
-    system: buildSystemPrompt(),
+    model: MODEL,
+    max_tokens: maxTokens,
+    system: systemPrompt,
     tools: toolDefinitions,
     messages,
   });
 
-  // If no tool use, return immediately
-  if (response.stop_reason === "end_stop" || !response.content.some((b) => b.type === "tool_use")) {
-    const text = extractText(response);
-    addToHistory(chatId, "user", question);
-    addToHistory(chatId, "assistant", text);
-    return text;
+  if (!response.content.some((b) => b.type === "tool_use")) {
+    return extractText(response);
   }
 
-  // Tool-use loop: open one Actual session for all tool calls
-  const answer = await withActual(userConfig, async (api) => {
+  return await withActual(userConfig, async (api) => {
     let rounds = 0;
 
     while (rounds < MAX_TOOL_ROUNDS) {
       rounds++;
 
-      // Collect tool_use blocks from this response
       const toolUseBlocks = response.content.filter((b) => b.type === "tool_use");
       if (toolUseBlocks.length === 0) break;
 
-      // Add assistant message with the full content (text + tool_use blocks)
       messages.push({ role: "assistant", content: response.content });
 
-      // Execute each tool and build result blocks
       const toolResults = [];
       for (const block of toolUseBlocks) {
         console.log(`[agent] Tool call: ${block.name}`, JSON.stringify(block.input));
@@ -105,16 +100,14 @@ export async function askAgent(userConfig, question) {
 
       messages.push({ role: "user", content: toolResults });
 
-      // Next Claude call
       response = await client.messages.create({
-        model: "claude-sonnet-4-5-20250929",
-        max_tokens: 1024,
-        system: buildSystemPrompt(),
+        model: MODEL,
+        max_tokens: maxTokens,
+        system: systemPrompt,
         tools: toolDefinitions,
         messages,
       });
 
-      // If Claude is done, exit
       if (!response.content.some((b) => b.type === "tool_use")) {
         break;
       }
@@ -122,15 +115,28 @@ export async function askAgent(userConfig, question) {
 
     return extractText(response);
   });
+}
+
+/**
+ * Ask the AI agent a natural language question about the user's budget.
+ * Maintains per-user chat history for follow-ups.
+ *
+ * @param {Object} userConfig - User's Actual Budget connection config
+ * @param {string} question - The user's natural language question
+ * @returns {Promise<string>} The agent's text response
+ */
+export async function askAgent(userConfig, question) {
+  const chatId = userConfig.chat_id;
+  const history = getHistory(chatId);
+  const messages = [...history, { role: "user", content: question }];
+
+  const answer = await runAgentLoop({
+    userConfig,
+    systemPrompt: buildSystemPrompt(),
+    messages,
+  });
 
   addToHistory(chatId, "user", question);
   addToHistory(chatId, "assistant", answer);
   return answer;
-}
-
-function extractText(response) {
-  return response.content
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
 }

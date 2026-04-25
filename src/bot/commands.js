@@ -1,14 +1,12 @@
-import { getTransactions } from "../enablebanking.js";
-import { mapTransaction } from "../sync.js";
-import { importTransactions } from "../actual.js";
+import { syncBankAccount } from "../sync.js";
 import { withActual } from "./actual-query.js";
 import { requireUser, requireAdmin, withTyping, friendlyError } from "./middleware.js";
 import {
-  updateBankAccount,
   deleteBankAccount,
   createInviteCode,
   listUsers,
   deleteUser,
+  updateUser,
 } from "../db.js";
 import {
   buildBalanceMessage,
@@ -19,52 +17,8 @@ import {
   buildHelpMessage,
 } from "./format.js";
 import { askAgent, clearHistory } from "../agent/index.js";
-
-/**
- * Syncs a single bank account: fetch transactions from EnableBanking,
- * map, import to Actual Budget, and update last_sync_date.
- */
-async function syncBankAccount(user, bank) {
-  const appId = process.env.ENABLEBANKING_APP_ID;
-  const keyPath = process.env.ENABLEBANKING_KEY_PATH;
-
-  let dateFrom;
-  if (bank.last_sync_date) {
-    dateFrom = bank.last_sync_date;
-  } else {
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-    dateFrom = ninetyDaysAgo.toISOString().split("T")[0];
-  }
-  const dateTo = new Date().toISOString().split("T")[0];
-
-  const transactions = await getTransactions(
-    appId, keyPath, bank.enablebanking_account_id, dateFrom, dateTo
-  );
-  const mapped = transactions.map(mapTransaction);
-
-  const result = await importTransactions(
-    user.actual_server_url,
-    user.actual_password,
-    user.actual_budget_id,
-    bank.actual_account_id,
-    mapped
-  );
-
-  await updateBankAccount(user.chat_id, bank.bank_name, { last_sync_date: dateTo });
-
-  const fetched = transactions.length;
-  const imported = result.added?.length || 0;
-  const updated = result.updated?.length || 0;
-  const errors = result.errors?.length || 0;
-  return {
-    fetched,
-    imported,
-    updated,
-    skipped: fetched - imported - updated,
-    errors,
-  };
-}
+import { isValidTimezone } from "../insights/timezone.js";
+import { runInsight } from "../insights/orchestrator.js";
 
 export function registerCommands(bot) {
   bot.command("start", (ctx) => ctx.replyWithHTML(buildHelpMessage()));
@@ -231,6 +185,55 @@ export function registerCommands(bot) {
   bot.command("clear", requireUser(), (ctx) => {
     clearHistory(ctx.chat.id);
     return ctx.reply("Chat context cleared.");
+  });
+
+  // --- Proactive insights ---
+
+  bot.command("subscribe", requireUser(), async (ctx) => {
+    await updateUser(ctx.chat.id, { insights_enabled: true });
+    await ctx.reply("Insights enabled. You'll get a daily summary at 09:00 your local time.");
+  });
+
+  bot.command("unsubscribe", requireUser(), async (ctx) => {
+    await updateUser(ctx.chat.id, { insights_enabled: false });
+    await ctx.reply("Insights disabled. Re-enable with /subscribe.");
+  });
+
+  bot.command("settimezone", requireUser(), async (ctx) => {
+    const tz = ctx.message.text.split(/\s+/)[1];
+    if (!tz || !isValidTimezone(tz)) {
+      return ctx.reply("Usage: /settimezone <Area/City> (e.g. /settimezone Europe/Rome)");
+    }
+    await updateUser(ctx.chat.id, { timezone: tz });
+    await ctx.reply(`Timezone set to ${tz}.`);
+  });
+
+  bot.command("insightnow", requireUser(), async (ctx) => {
+    const kind = (ctx.message.text.split(/\s+/)[1] || "daily").toLowerCase();
+    if (!["daily", "weekly", "monthly"].includes(kind)) {
+      return ctx.reply("Usage: /insightnow [daily|weekly|monthly]");
+    }
+    try {
+      await withTyping(ctx, async () => {
+        const result = await runInsight(ctx.user, kind, ctx.telegram, { force: true });
+        if (result.skipped) {
+          await ctx.reply("(no activity today — skipped)");
+        }
+      });
+    } catch (error) {
+      await ctx.replyWithHTML(friendlyError(error));
+    }
+  });
+
+  bot.command("insightstatus", requireUser(), async (ctx) => {
+    const u = ctx.user;
+    await ctx.replyWithHTML(
+      `Insights: <b>${u.insights_enabled ? "on" : "off"}</b>\n` +
+        `Timezone: <code>${u.timezone || "Europe/Rome"}</code>\n` +
+        `Last daily: ${u.last_daily_insight_date || "never"}\n` +
+        `Last weekly: ${u.last_weekly_insight_date || "never"}\n` +
+        `Last monthly: ${u.last_monthly_insight_date || "never"}`
+    );
   });
 
   // --- Admin commands ---

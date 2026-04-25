@@ -7,6 +7,7 @@ import { initDb } from "./db.js";
 import { loadUser } from "./bot/middleware.js";
 import { registerCommands } from "./bot/commands.js";
 import { createSetupWizard, createConnectBankWizard } from "./bot/setup.js";
+import { startInsightScheduler } from "./insights/scheduler.js";
 
 // If ENABLEBANKING_KEY_CONTENT is set (e.g. on Railway), write it to a temp file
 // and point ENABLEBANKING_KEY_PATH to it
@@ -56,7 +57,10 @@ process.once("SIGTERM", stop);
 
 // Initialize DB and launch
 initDb()
-  .then(() => bot.launch())
+  .then(() => {
+    startInsightScheduler(bot.telegram);
+    return bot.launch();
+  })
   .then(() => {
     console.log("ActualIntesa bot started (multi-user mode)");
   })

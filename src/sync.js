@@ -1,5 +1,6 @@
 import { getTransactions } from "./enablebanking.js";
 import { importTransactions } from "./actual.js";
+import { updateBankAccount } from "./db.js";
 import { readFileSync, writeFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -89,6 +90,53 @@ export function mapTransaction(tx) {
     notes,
     imported_id,
     cleared,
+  };
+}
+
+/**
+ * Syncs a single bank account for a user: fetch from EnableBanking,
+ * map, import to Actual Budget, and update last_sync_date.
+ * Used by /sync and the proactive insights scheduler.
+ */
+export async function syncBankAccount(user, bank) {
+  const appId = process.env.ENABLEBANKING_APP_ID;
+  const keyPath = process.env.ENABLEBANKING_KEY_PATH;
+
+  let dateFrom;
+  if (bank.last_sync_date) {
+    dateFrom = bank.last_sync_date;
+  } else {
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    dateFrom = ninetyDaysAgo.toISOString().split("T")[0];
+  }
+  const dateTo = new Date().toISOString().split("T")[0];
+
+  const transactions = await getTransactions(
+    appId, keyPath, bank.enablebanking_account_id, dateFrom, dateTo
+  );
+  const mapped = transactions.map(mapTransaction);
+
+  const result = await importTransactions(
+    user.actual_server_url,
+    user.actual_password,
+    user.actual_budget_id,
+    bank.actual_account_id,
+    mapped
+  );
+
+  await updateBankAccount(user.chat_id, bank.bank_name, { last_sync_date: dateTo });
+
+  const fetched = transactions.length;
+  const imported = result.added?.length || 0;
+  const updated = result.updated?.length || 0;
+  const errors = result.errors?.length || 0;
+  return {
+    fetched,
+    imported,
+    updated,
+    skipped: fetched - imported - updated,
+    errors,
   };
 }
 

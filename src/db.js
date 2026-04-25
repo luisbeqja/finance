@@ -42,6 +42,12 @@ export async function initDb() {
       used_by TEXT,
       used_at TIMESTAMPTZ
     );
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Europe/Rome';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS insights_enabled BOOLEAN DEFAULT TRUE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_daily_insight_date TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_weekly_insight_date TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_monthly_insight_date TEXT;
   `);
 
   await migrateLegacyBankColumns();
@@ -156,7 +162,17 @@ function decryptFields(row) {
 
 // --- User functions ---
 
-const USER_COLUMNS = ["chat_id", "actual_server_url", "actual_password", "actual_budget_id"];
+const USER_COLUMNS = [
+  "chat_id",
+  "actual_server_url",
+  "actual_password",
+  "actual_budget_id",
+  "timezone",
+  "insights_enabled",
+  "last_daily_insight_date",
+  "last_weekly_insight_date",
+  "last_monthly_insight_date",
+];
 
 /**
  * Get a user by Telegram chat ID with their connected bank accounts attached
@@ -313,4 +329,21 @@ export async function listUsers() {
     FROM users u
   `);
   return rows;
+}
+
+/**
+ * Returns all users with insights_enabled = TRUE, decrypted, with bankAccounts attached.
+ * Used by the insight scheduler.
+ */
+export async function listInsightUsers() {
+  const { rows } = await pool.query(
+    "SELECT * FROM users WHERE insights_enabled = TRUE"
+  );
+  const users = [];
+  for (const row of rows) {
+    const user = decryptFields(row);
+    user.bankAccounts = await listBankAccounts(user.chat_id);
+    users.push(user);
+  }
+  return users;
 }

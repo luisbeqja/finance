@@ -154,6 +154,12 @@ export function buildHelpMessage() {
     "/spending [YYYY-MM] - Category spending breakdown\n" +
     "/clear - Clear AI conversation history\n" +
     "/help - Show this message\n\n" +
+    "<b>Proactive insights</b>\n" +
+    "/insightstatus - Show your insight settings\n" +
+    "/insightnow [daily|weekly|monthly] - Send an insight now (test)\n" +
+    "/settimezone &lt;Area/City&gt; - e.g. /settimezone Europe/Rome\n" +
+    "/unsubscribe - Stop the daily/weekly/monthly insights\n" +
+    "/subscribe - Re-enable them\n\n" +
     "Or just type any question to ask the AI about your finances.\n" +
     "The AI remembers the last 10 messages for follow-ups.\n\n" +
     "<b>AI Assistant</b>\n" +
