@@ -47,6 +47,27 @@ bot.command("connectbank", (ctx) => ctx.scene.enter("connectbank-wizard"));
 // Register all commands
 registerCommands(bot);
 
+// Visible command list shown in Telegram's "/" autocomplete menu.
+// Admin commands (/invite, /users, /revoke) are intentionally omitted —
+// admins can still type them manually.
+const COMMAND_MENU = [
+  { command: "help", description: "Show help and command list" },
+  { command: "setup", description: "Set up Actual Budget" },
+  { command: "connectbank", description: "Connect a bank (Intesa or Revolut)" },
+  { command: "banks", description: "List connected banks" },
+  { command: "disconnectbank", description: "Disconnect a bank" },
+  { command: "sync", description: "Sync transactions from all banks" },
+  { command: "balance", description: "Show account balances" },
+  { command: "transactions", description: "Recent transactions" },
+  { command: "spending", description: "Spending breakdown" },
+  { command: "insightstatus", description: "Show insight settings" },
+  { command: "insightnow", description: "Send an insight now" },
+  { command: "settimezone", description: "Set your timezone" },
+  { command: "subscribe", description: "Re-enable scheduled insights" },
+  { command: "unsubscribe", description: "Stop scheduled insights" },
+  { command: "clear", description: "Clear AI conversation history" },
+];
+
 // Graceful shutdown
 const stop = () => {
   bot.stop("SIGINT");
@@ -57,11 +78,10 @@ process.once("SIGTERM", stop);
 
 // Initialize DB and launch
 initDb()
-  .then(() => {
+  .then(async () => {
+    await bot.telegram.setMyCommands(COMMAND_MENU);
     startInsightScheduler(bot.telegram);
-    return bot.launch();
-  })
-  .then(() => {
+    bot.launch();
     console.log("ActualIntesa bot started (multi-user mode)");
   })
   .catch((err) => {
