@@ -98,16 +98,43 @@ export function buildSpendingMessage(month, categoryGroups, income, spent) {
 }
 
 /**
- * Builds the sync summary message
+ * Builds the sync summary message. Accepts an array of per-bank results.
  */
-export function buildSyncMessage({ fetched, imported, updated, skipped, errors, duration }) {
-  let msg = "<b>Sync Complete</b>\n\n";
-  msg += `Fetched: ${fetched}\n`;
-  msg += `Imported: ${imported}\n`;
-  msg += `Updated: ${updated}\n`;
-  msg += `Skipped: ${skipped}\n`;
-  msg += `Errors: ${errors}\n`;
-  msg += `Duration: ${duration}s`;
+export function buildSyncMessage({ banks, totalDuration }) {
+  let msg = "<b>Sync Complete</b>\n";
+
+  for (const b of banks) {
+    msg += `\n<b>${escapeHtml(b.displayName)}</b>\n`;
+    if (b.error) {
+      msg += `Error: ${escapeHtml(b.error)}\n`;
+      continue;
+    }
+    msg += `Fetched: ${b.fetched}\n`;
+    msg += `Imported: ${b.imported}\n`;
+    msg += `Updated: ${b.updated}\n`;
+    msg += `Skipped: ${b.skipped}\n`;
+    msg += `Errors: ${b.errors}\n`;
+  }
+
+  msg += `\nTotal duration: ${totalDuration}s`;
+  return msg;
+}
+
+/**
+ * Builds the /banks list message
+ */
+export function buildBanksListMessage(bankAccounts) {
+  if (!bankAccounts || bankAccounts.length === 0) {
+    return "No banks connected. Run /connectbank to add one.";
+  }
+  let msg = "<b>Connected Banks</b>\n\n";
+  for (const b of bankAccounts) {
+    const display = b.bank_display_name || b.bank_name;
+    const lastSync = b.last_sync_date || "never";
+    msg += `<b>${escapeHtml(display)}</b>\n`;
+    msg += `Last sync: ${escapeHtml(lastSync)}\n\n`;
+  }
+  msg += "Use /disconnectbank &lt;name&gt; to remove one (e.g. /disconnectbank revolut).";
   return msg;
 }
 
@@ -116,10 +143,12 @@ export function buildSyncMessage({ fetched, imported, updated, skipped, errors, 
  */
 export function buildHelpMessage() {
   return (
-    "<b>ActualIntesa Bot</b>\n\n" +
+    "<b>Finance Bot</b>\n\n" +
     "/setup - Set up or reconfigure Actual Budget\n" +
-    "/connectbank - Connect your bank account\n" +
-    "/sync - Sync bank transactions\n" +
+    "/connectbank - Connect a bank (Intesa or Revolut)\n" +
+    "/banks - List connected banks\n" +
+    "/disconnectbank &lt;name&gt; - Remove a connected bank\n" +
+    "/sync - Sync transactions from all connected banks\n" +
     "/balance - Account balances\n" +
     "/transactions [N] - Recent transactions (default 10)\n" +
     "/spending [YYYY-MM] - Category spending breakdown\n" +

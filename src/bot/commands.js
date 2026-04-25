@@ -3,19 +3,69 @@ import { mapTransaction } from "../sync.js";
 import { importTransactions } from "../actual.js";
 import { withActual } from "./actual-query.js";
 import { requireUser, requireAdmin, withTyping, friendlyError } from "./middleware.js";
-import { updateUser, createInviteCode, listUsers, deleteUser } from "../db.js";
+import {
+  updateBankAccount,
+  deleteBankAccount,
+  createInviteCode,
+  listUsers,
+  deleteUser,
+} from "../db.js";
 import {
   buildBalanceMessage,
   buildTransactionsMessage,
   buildSpendingMessage,
   buildSyncMessage,
+  buildBanksListMessage,
   buildHelpMessage,
 } from "./format.js";
 import { askAgent, clearHistory } from "../agent/index.js";
 
 /**
- * Registers all bot commands on a Telegraf bot instance
+ * Syncs a single bank account: fetch transactions from EnableBanking,
+ * map, import to Actual Budget, and update last_sync_date.
  */
+async function syncBankAccount(user, bank) {
+  const appId = process.env.ENABLEBANKING_APP_ID;
+  const keyPath = process.env.ENABLEBANKING_KEY_PATH;
+
+  let dateFrom;
+  if (bank.last_sync_date) {
+    dateFrom = bank.last_sync_date;
+  } else {
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    dateFrom = ninetyDaysAgo.toISOString().split("T")[0];
+  }
+  const dateTo = new Date().toISOString().split("T")[0];
+
+  const transactions = await getTransactions(
+    appId, keyPath, bank.enablebanking_account_id, dateFrom, dateTo
+  );
+  const mapped = transactions.map(mapTransaction);
+
+  const result = await importTransactions(
+    user.actual_server_url,
+    user.actual_password,
+    user.actual_budget_id,
+    bank.actual_account_id,
+    mapped
+  );
+
+  await updateBankAccount(user.chat_id, bank.bank_name, { last_sync_date: dateTo });
+
+  const fetched = transactions.length;
+  const imported = result.added?.length || 0;
+  const updated = result.updated?.length || 0;
+  const errors = result.errors?.length || 0;
+  return {
+    fetched,
+    imported,
+    updated,
+    skipped: fetched - imported - updated,
+    errors,
+  };
+}
+
 export function registerCommands(bot) {
   bot.command("start", (ctx) => ctx.replyWithHTML(buildHelpMessage()));
   bot.command("help", (ctx) => ctx.replyWithHTML(buildHelpMessage()));
@@ -23,56 +73,49 @@ export function registerCommands(bot) {
   // --- User commands (require registered user) ---
 
   bot.command("sync", requireUser(), async (ctx) => {
-    if (!ctx.user.enablebanking_session_id || !ctx.user.enablebanking_account_id) {
-      return ctx.reply("Bank account not connected. Run /connectbank first.");
+    const banks = ctx.user.bankAccounts || [];
+    if (banks.length === 0) {
+      return ctx.reply("No banks connected. Run /connectbank first.");
     }
+
     try {
       await withTyping(ctx, async () => {
-        const user = ctx.user;
         const startTime = Date.now();
+        const results = [];
 
-        const appId = process.env.ENABLEBANKING_APP_ID;
-        const keyPath = process.env.ENABLEBANKING_KEY_PATH;
-
-        // Determine date range
-        let dateFrom;
-        if (user.last_sync_date) {
-          dateFrom = user.last_sync_date;
-        } else {
-          const ninetyDaysAgo = new Date();
-          ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-          dateFrom = ninetyDaysAgo.toISOString().split("T")[0];
+        for (const bank of banks) {
+          const displayName = bank.bank_display_name || bank.bank_name;
+          try {
+            const r = await syncBankAccount(ctx.user, bank);
+            results.push({ displayName, ...r });
+          } catch (err) {
+            results.push({ displayName, error: err.message });
+          }
         }
-        const dateTo = new Date().toISOString().split("T")[0];
 
-        // Fetch transactions from Enable Banking
-        const transactions = await getTransactions(
-          appId, keyPath, user.enablebanking_account_id, dateFrom, dateTo
-        );
-        const mappedTransactions = transactions.map(mapTransaction);
-
-        // Import to Actual Budget
-        const result = await importTransactions(
-          user.actual_server_url, user.actual_password,
-          user.actual_budget_id, user.actual_account_id,
-          mappedTransactions
-        );
-
-        const fetched = transactions.length;
-        const imported = result.added?.length || 0;
-        const updated = result.updated?.length || 0;
-        const skipped = fetched - imported - updated;
-        const errors = result.errors?.length || 0;
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-
-        // Update last_sync_date in DB
-        await updateUser(ctx.chat.id, { last_sync_date: dateTo });
-
-        await ctx.replyWithHTML(buildSyncMessage({ fetched, imported, updated, skipped, errors, duration }));
+        const totalDuration = ((Date.now() - startTime) / 1000).toFixed(1);
+        await ctx.replyWithHTML(buildSyncMessage({ banks: results, totalDuration }));
       });
     } catch (error) {
       await ctx.replyWithHTML(friendlyError(error));
     }
+  });
+
+  bot.command("banks", requireUser(), async (ctx) => {
+    await ctx.replyWithHTML(buildBanksListMessage(ctx.user.bankAccounts));
+  });
+
+  bot.command("disconnectbank", requireUser(), async (ctx) => {
+    const args = ctx.message.text.split(/\s+/).slice(1);
+    const target = args[0]?.toLowerCase();
+    if (!target) {
+      return ctx.reply("Usage: /disconnectbank <name> (e.g. /disconnectbank revolut)");
+    }
+    const removed = await deleteBankAccount(ctx.chat.id, target);
+    if (!removed) {
+      return ctx.reply(`No connected bank named "${target}". Use /banks to see what's connected.`);
+    }
+    await ctx.reply(`Disconnected ${target}.`);
   });
 
   bot.command("balance", requireUser(), async (ctx) => {
@@ -204,7 +247,7 @@ export function registerCommands(bot) {
     }
     let msg = `Registered users (${users.length}):\n\n`;
     for (const u of users) {
-      msg += `Chat ID: ${u.chat_id} | Joined: ${u.created_at || "?"} | Last sync: ${u.last_sync_date || "never"}\n`;
+      msg += `Chat ID: ${u.chat_id} | Joined: ${u.created_at || "?"} | Banks: ${u.bank_count} | Last sync: ${u.last_sync_date || "never"}\n`;
     }
     await ctx.reply(msg);
   });

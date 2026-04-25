@@ -9,15 +9,16 @@ const projectRoot = join(__dirname, "..");
 const dataDir = join(projectRoot, "actual-data");
 
 /**
- * Validates connection to Actual Budget server
+ * Validates connection to Actual Budget server. If `accountId` is omitted,
+ * only the server/budget connection is verified.
  * @param {string} serverUrl - Actual Budget server URL
  * @param {string} password - Actual Budget password
  * @param {string} budgetId - Budget sync ID
- * @param {string} accountId - Account ID to verify
+ * @param {string|null} [accountId] - Optional account ID to verify
  * @returns {Promise<boolean>} True if connection is valid
  * @throws {Error} If connection fails with descriptive error message
  */
-export async function validateConnection(serverUrl, password, budgetId, accountId) {
+export async function validateConnection(serverUrl, password, budgetId, accountId = null) {
   // Ensure data directory exists
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });
@@ -39,6 +40,10 @@ export async function validateConnection(serverUrl, password, budgetId, accountI
         throw new Error(`Budget not found. Check your Budget Sync ID in Actual Budget → Settings → Advanced`);
       }
       throw new Error(`Failed to download budget: ${error.message}`);
+    }
+
+    if (!accountId) {
+      return true;
     }
 
     // Get accounts and verify account ID exists

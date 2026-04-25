@@ -66,7 +66,7 @@ export async function withTyping(ctx, fn) {
 export function friendlyError(error) {
   const msg = error.message || "";
   if (msg.toLowerCase().includes("session") || msg.includes("401") || msg.includes("403")) {
-    return "Enable Banking session expired. Run /setup again to reconnect your bank.";
+    return "Enable Banking session expired. Run /connectbank to reconnect.";
   }
   if (msg.includes("ECONNREFUSED")) {
     return "Cannot connect to Actual Budget server. Is it running?";
