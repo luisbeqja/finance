@@ -57,7 +57,8 @@ Cover ${weekStart} through ${weekEnd} (this week) versus ${priorStart} through $
 Required steps:
 1. Call get_transactions with start_date="${weekStart}" and end_date="${weekEnd}". Sum negative amounts for total spend; group by category.
 2. Call get_transactions with start_date="${priorStart}" and end_date="${priorEnd}". Sum negative amounts for prior-week total.
-3. Identify the top 3 categories by spend this week.
+3. Identify the top 5 categories by spend this week.
+4. Call render_chart once with chart_type="bar", title="Top categories — ${weekStart} to ${weekEnd}", labels=top 5 category names, datasets=[{label:"This week", data:[amounts in EUR]}, {label:"Prior week", data:[amounts in EUR for the same categories]}]. Amounts in EUR (cents/100), positive numbers.
 
 Required output structure:
 - Header: <b>Weekly recap — ${weekStart} to ${weekEnd}</b>
@@ -67,7 +68,7 @@ Required output structure:
 
 ${COMMON_RULES}
 
-Be objective and brief. No greetings or sign-offs.`;
+Be objective and brief. No greetings or sign-offs. The chart is sent as a separate photo — do not embed it in the text.`;
 }
 
 /**
@@ -81,7 +82,8 @@ export function buildMonthlyInsightPrompt(prevMonth) {
 Required steps:
 1. Call get_budget_summary with months=["${monthBefore}", "${prevMonth}"] to get income and spend for both months.
 2. Call get_budget_month with month="${prevMonth}" for category breakdown.
-3. Call get_transactions with the start_date and end_date covering the full ${prevMonth} (use the 1st as start and the last day as end). Use this to identify the top 3 payees by spend.
+3. Call get_transactions with the start_date and end_date covering the full ${prevMonth} (use the 1st as start and the last day as end). Use this to identify the top 5 payees by spend.
+4. Call render_chart once with chart_type="doughnut", title="Spending breakdown — ${prevMonth}", labels=top category names (up to 6), datasets=[{data:[amounts in EUR]}]. Amounts in EUR (cents/100), positive numbers.
 
 Required output structure:
 - Header: <b>Monthly wrap — ${prevMonth}</b>
@@ -94,7 +96,7 @@ Required output structure:
 
 ${COMMON_RULES}
 
-No greetings or sign-offs. Concise and factual.`;
+No greetings or sign-offs. Concise and factual. The chart is sent as a separate photo — do not embed it in the text.`;
 }
 
 // --- date helpers (string YYYY-MM-DD) ---

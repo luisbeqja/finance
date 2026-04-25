@@ -10,13 +10,15 @@ import {
  * One-shot, history-free insight generator. Uses the user's timezone to
  * derive the relevant date range for the requested kind, builds a
  * kind-specific system prompt, and runs the same Claude tool-use loop
- * the chat agent uses (same 9 tools, same model).
+ * the chat agent uses. Pass `telegram` to enable the render_chart tool
+ * so weekly/monthly insights can include a chart photo alongside the text.
  *
  * @param {Object} user - User row including actual_* fields and chat_id
  * @param {"daily"|"weekly"|"monthly"} kind
+ * @param {Object} [telegram] - Telegraf bot.telegram for chart rendering
  * @returns {Promise<string>} HTML message body for Telegram
  */
-export async function generateInsight(user, kind) {
+export async function generateInsight(user, kind, telegram) {
   const parts = localParts(user.timezone || "Europe/Rome");
   const today = parts.ymd;
 
@@ -46,6 +48,7 @@ export async function generateInsight(user, kind) {
     systemPrompt,
     messages: [{ role: "user", content: userMessage }],
     maxTokens,
+    telegram,
   });
 }
 

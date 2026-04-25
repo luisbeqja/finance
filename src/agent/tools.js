@@ -1,7 +1,15 @@
 /**
  * Tool definitions for the AI budget agent.
- * Each tool has a `definition` (sent to Claude) and an `execute(api, input)` function.
+ * Each tool has a `definition` (sent to Claude) and an
+ * `execute(api, input, ctx?)` function. `ctx` is { telegram, chatId } when
+ * available — used by side-effect tools like render_chart.
  */
+
+// Default palette for pie/doughnut/bar charts when the agent doesn't supply colors.
+const CHART_PALETTE = [
+  "#4e79a7", "#f28e2c", "#e15759", "#76b7b2", "#59a14f",
+  "#edc949", "#af7aa1", "#ff9da7", "#9c755f", "#bab0ab",
+];
 
 const tools = [
   {
@@ -436,6 +444,109 @@ const tools = [
 
         return { conditions_description, actions_description };
       });
+    },
+  },
+
+  {
+    definition: {
+      name: "render_chart",
+      description:
+        "Render a chart and send it to the user as a photo on Telegram. Use this when a visualization helps — category breakdowns, monthly comparisons, balance trends, top-payee bars. The chart is delivered as a separate Telegram photo with the title as caption; your text response should reference what was sent (e.g. \"Sent a bar chart of your top 5 categories\"). Do NOT call this tool more than 3 times per response.",
+      input_schema: {
+        type: "object",
+        properties: {
+          chart_type: {
+            type: "string",
+            enum: ["bar", "line", "pie", "doughnut", "horizontalBar"],
+            description: "Chart.js type. Use bar/horizontalBar for category comparisons, line for trends over time, pie/doughnut for breakdowns of a whole.",
+          },
+          title: {
+            type: "string",
+            description: "Chart title — also used as the Telegram photo caption.",
+          },
+          labels: {
+            type: "array",
+            items: { type: "string" },
+            description: "X-axis labels (or pie/doughnut slice labels).",
+          },
+          datasets: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string", description: "Series name. Omit for pie/doughnut." },
+                data: { type: "array", items: { type: "number" }, description: "Values in EUR (NOT cents). Convert from cents before passing." },
+              },
+              required: ["data"],
+            },
+            description: "Data series. For pie/doughnut, supply exactly one dataset whose data length matches labels length.",
+          },
+        },
+        required: ["chart_type", "title", "labels", "datasets"],
+      },
+    },
+    async execute(api, input, ctx) {
+      if (!ctx?.telegram || !ctx?.chatId) {
+        return { error: "Chart rendering is not available in this context." };
+      }
+
+      const { chart_type, title, labels, datasets } = input;
+      const isCircular = chart_type === "pie" || chart_type === "doughnut";
+
+      // For pie/doughnut, color each slice from the palette unless agent supplied one.
+      const enrichedDatasets = datasets.map((ds, i) => {
+        const out = { ...ds };
+        if (isCircular && !out.backgroundColor) {
+          out.backgroundColor = labels.map((_, j) => CHART_PALETTE[j % CHART_PALETTE.length]);
+        } else if (!out.backgroundColor) {
+          out.backgroundColor = CHART_PALETTE[i % CHART_PALETTE.length];
+        }
+        return out;
+      });
+
+      const chartConfig = {
+        type: chart_type,
+        data: { labels, datasets: enrichedDatasets },
+        options: {
+          plugins: {
+            title: { display: !!title, text: title, font: { size: 16 } },
+            legend: { display: isCircular || datasets.length > 1 },
+          },
+        },
+      };
+
+      let buffer;
+      try {
+        const response = await fetch("https://quickchart.io/chart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chart: chartConfig,
+            width: 800,
+            height: 500,
+            backgroundColor: "white",
+            format: "png",
+          }),
+        });
+        if (!response.ok) {
+          return { error: `QuickChart failed: HTTP ${response.status}` };
+        }
+        buffer = Buffer.from(await response.arrayBuffer());
+      } catch (err) {
+        return { error: `QuickChart fetch failed: ${err.message}` };
+      }
+
+      try {
+        await ctx.telegram.sendPhoto(
+          ctx.chatId,
+          { source: buffer },
+          title ? { caption: title } : {}
+        );
+      } catch (err) {
+        return { error: `Telegram sendPhoto failed: ${err.message}` };
+      }
+
+      return { sent: true, message: `Chart "${title}" sent as photo.` };
     },
   },
 ];

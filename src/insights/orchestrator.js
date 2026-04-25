@@ -21,7 +21,7 @@ export async function runDailyInsight(user, telegram, { force = false } = {}) {
     return { skipped: "no-activity", importedTotal };
   }
 
-  const text = await generateInsight(user, "daily");
+  const text = await generateInsight(user, "daily", telegram);
   await telegram.sendMessage(user.chat_id, truncate(text), { parse_mode: "HTML" });
   return { sent: true, importedTotal };
 }
@@ -31,7 +31,7 @@ export async function runDailyInsight(user, telegram, { force = false } = {}) {
  * has been keeping data fresh through the week.
  */
 export async function runWeeklyInsight(user, telegram) {
-  const text = await generateInsight(user, "weekly");
+  const text = await generateInsight(user, "weekly", telegram);
   await telegram.sendMessage(user.chat_id, truncate(text), { parse_mode: "HTML" });
   return { sent: true };
 }
@@ -40,7 +40,7 @@ export async function runWeeklyInsight(user, telegram) {
  * Generate and send the monthly insight.
  */
 export async function runMonthlyInsight(user, telegram) {
-  const text = await generateInsight(user, "monthly");
+  const text = await generateInsight(user, "monthly", telegram);
   await telegram.sendMessage(user.chat_id, truncate(text), { parse_mode: "HTML" });
   return { sent: true };
 }

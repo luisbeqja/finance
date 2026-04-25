@@ -47,9 +47,12 @@ function extractText(response) {
  * @param {string} args.systemPrompt - System prompt for this run
  * @param {Array} args.messages - Initial messages array (history + current user message). Mutated by the loop.
  * @param {number} [args.maxTokens=1024] - Max output tokens per Claude call
+ * @param {Object} [args.telegram] - Telegraf bot.telegram instance — required for the render_chart tool to send photos
  * @returns {Promise<string>} The final assistant text
  */
-export async function runAgentLoop({ userConfig, systemPrompt, messages, maxTokens = 1024 }) {
+export async function runAgentLoop({ userConfig, systemPrompt, messages, maxTokens = 1024, telegram }) {
+  const toolCtx = telegram ? { telegram, chatId: userConfig.chat_id } : undefined;
+
   let response = await client.messages.create({
     model: MODEL,
     max_tokens: maxTokens,
@@ -80,7 +83,7 @@ export async function runAgentLoop({ userConfig, systemPrompt, messages, maxToke
         let result;
         if (executor) {
           try {
-            result = await executor(api, block.input);
+            result = await executor(api, block.input, toolCtx);
           } catch (err) {
             console.error(`[agent] Tool error (${block.name}):`, err.message);
             result = { error: err.message };
@@ -119,13 +122,15 @@ export async function runAgentLoop({ userConfig, systemPrompt, messages, maxToke
 
 /**
  * Ask the AI agent a natural language question about the user's budget.
- * Maintains per-user chat history for follow-ups.
+ * Maintains per-user chat history for follow-ups. Pass `telegram` to enable
+ * the render_chart tool (so the agent can send chart photos to the user).
  *
  * @param {Object} userConfig - User's Actual Budget connection config
  * @param {string} question - The user's natural language question
+ * @param {Object} [telegram] - Telegraf bot.telegram, required for chart rendering
  * @returns {Promise<string>} The agent's text response
  */
-export async function askAgent(userConfig, question) {
+export async function askAgent(userConfig, question, telegram) {
   const chatId = userConfig.chat_id;
   const history = getHistory(chatId);
   const messages = [...history, { role: "user", content: question }];
@@ -134,6 +139,7 @@ export async function askAgent(userConfig, question) {
     userConfig,
     systemPrompt: buildSystemPrompt(),
     messages,
+    telegram,
   });
 
   addToHistory(chatId, "user", question);

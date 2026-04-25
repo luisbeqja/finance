@@ -281,7 +281,7 @@ export function registerCommands(bot) {
     if (!question) return;
     try {
       await withTyping(ctx, async () => {
-        const answer = await askAgent(ctx.user, question);
+        const answer = await askAgent(ctx.user, question, ctx.telegram);
         await ctx.replyWithHTML(answer);
       });
     } catch (error) {
