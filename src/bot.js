@@ -18,13 +18,14 @@ if (process.env.ENABLEBANKING_KEY_CONTENT && !process.env.ENABLEBANKING_KEY_PATH
 }
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
+const handlerTimeoutMs = Number.parseInt(process.env.TELEGRAM_HANDLER_TIMEOUT_MS || "600000", 10);
 
 if (!token) {
   console.error("Missing TELEGRAM_BOT_TOKEN in .env");
   process.exit(1);
 }
 
-const bot = new Telegraf(token);
+const bot = new Telegraf(token, { handlerTimeout: handlerTimeoutMs });
 
 // Set up scenes (setup + bank connection wizards)
 const setupWizard = createSetupWizard();
@@ -83,7 +84,7 @@ initDb()
     await bot.telegram.setMyCommands(COMMAND_MENU);
     startInsightScheduler(bot.telegram);
     bot.launch();
-    console.log("ActualIntesa bot started (multi-user mode)");
+    console.log(`ActualIntesa bot started (multi-user mode, handler timeout ${handlerTimeoutMs}ms)`);
   })
   .catch((err) => {
     console.error("Failed to start:", err);

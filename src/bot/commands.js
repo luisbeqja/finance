@@ -20,6 +20,34 @@ import { askAgent, clearHistory, researchAgent } from "../agent/index.js";
 import { isValidTimezone } from "../insights/timezone.js";
 import { runInsight } from "../insights/orchestrator.js";
 
+const TELEGRAM_SAFE_MESSAGE_LENGTH = 3900;
+
+function htmlToPlainText(html) {
+  return String(html || "")
+    .replace(/<\/b>/g, "")
+    .replace(/<b>/g, "")
+    .replace(/<\/i>/g, "")
+    .replace(/<i>/g, "")
+    .replace(/<\/code>/g, "")
+    .replace(/<code>/g, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
+async function replyWithHtmlFallback(ctx, html) {
+  const message = String(html || "I could not generate a written analysis. Please try again.").slice(0, TELEGRAM_SAFE_MESSAGE_LENGTH);
+  try {
+    await ctx.replyWithHTML(message);
+  } catch (error) {
+    console.error("[bot] HTML reply failed, sending plain text fallback:", error.message);
+    const plainText = htmlToPlainText(message) || "I could not send the formatted analysis. Please try again.";
+    await ctx.reply(plainText.slice(0, TELEGRAM_SAFE_MESSAGE_LENGTH));
+  }
+}
+
 export function registerCommands(bot) {
   bot.command("start", (ctx) => ctx.replyWithHTML(buildHelpMessage()));
   bot.command("help", (ctx) => ctx.replyWithHTML(buildHelpMessage()));
@@ -200,7 +228,7 @@ export function registerCommands(bot) {
       await ctx.reply("Research mode started. I’ll run a deeper multi-step budget analysis.");
       await withTyping(ctx, async () => {
         const answer = await researchAgent(ctx.user, goal, ctx.telegram);
-        await ctx.replyWithHTML(answer);
+        await replyWithHtmlFallback(ctx, answer);
       });
     } catch (error) {
       await ctx.replyWithHTML(friendlyError(error));
@@ -302,7 +330,7 @@ export function registerCommands(bot) {
     try {
       await withTyping(ctx, async () => {
         const answer = await askAgent(ctx.user, question, ctx.telegram);
-        await ctx.replyWithHTML(answer);
+        await replyWithHtmlFallback(ctx, answer);
       });
     } catch (error) {
       await ctx.replyWithHTML(friendlyError(error));
