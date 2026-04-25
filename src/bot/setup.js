@@ -1,7 +1,7 @@
 import { Scenes } from "telegraf";
 import { getUser, saveUser, useInviteCode, saveBankAccount } from "../db.js";
 import { validateConnection } from "../actual.js";
-import { startAuth, createSession } from "../enablebanking.js";
+import { startAuth, createSession, getSession } from "../enablebanking.js";
 import { listSupportedBanks, getBankConfig, resolveBank } from "../banks.js";
 
 const REDIRECT_URL = "https://enablebanking.com";
@@ -251,9 +251,37 @@ export function createConnectBankWizard() {
         const keyPath = process.env.ENABLEBANKING_KEY_PATH;
 
         const session = await createSession(appId, keyPath, code);
-        const accounts = session.accounts || [];
+        console.log(
+          `[connectbank] createSession response (${ctx.wizard.state.bankKey}):`,
+          JSON.stringify(session)
+        );
+
+        let accounts = session.accounts || [];
+
+        // Some banks (notably Revolut) return an empty accounts list from
+        // POST /sessions even though the session is valid. A follow-up
+        // GET /sessions/{id} usually returns the populated list.
+        if (accounts.length === 0 && session.session_id) {
+          await ctx.reply("Bank accounts not in initial response, refetching...");
+          try {
+            const detail = await getSession(appId, keyPath, session.session_id);
+            console.log(
+              `[connectbank] getSession response (${ctx.wizard.state.bankKey}):`,
+              JSON.stringify(detail)
+            );
+            accounts = detail.accounts || [];
+          } catch (err) {
+            console.error(`[connectbank] getSession failed:`, err.message);
+          }
+        }
+
         if (accounts.length === 0) {
-          await ctx.reply("No bank accounts found. Contact admin.");
+          await ctx.reply(
+            "No bank accounts came back from the bank.\n\n" +
+            "This usually means the consent screen didn't include any accounts. " +
+            "Try /connectbank again and make sure you tick the account(s) you want to share " +
+            "during the bank's authorization screen."
+          );
           return ctx.scene.leave();
         }
 
