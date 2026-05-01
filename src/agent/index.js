@@ -5,9 +5,14 @@ import { buildResearchPrompt, buildSystemPrompt } from "./prompt.js";
 
 const MAX_TOOL_ROUNDS = 10;
 const MAX_HISTORY = 10;
-const MODEL = "claude-sonnet-4-5-20250929";
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
 
-const client = new Anthropic();
+// ANTHROPIC_BASE_URL lets us point at OpenRouter's Anthropic-compatible
+// endpoint ("https://openrouter.ai/api"); leave unset to use api.anthropic.com.
+// API key still comes from ANTHROPIC_API_KEY (default SDK behavior).
+const client = new Anthropic({
+  baseURL: process.env.ANTHROPIC_BASE_URL || undefined,
+});
 
 const chatHistories = new Map();
 
